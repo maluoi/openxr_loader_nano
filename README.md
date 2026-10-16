@@ -11,7 +11,7 @@ openxr_loader_nano is a 4-12x smaller binary, compiles about 20x faster, saves a
 Point your FetchContent or CPM dependency at this repository instead of `KhronosGroup/OpenXR-SDK`. The `openxr_loader`, `headers`, `OpenXR::openxr_loader` and `OpenXR::headers` targets work as before, and so do `DYNAMIC_LOADER` and `BUILD_LOADER`. Upstream's other options are ignored.
 
 ```cmake
-FetchContent_Declare(OpenXR GIT_REPOSITORY https://github.com/maluoi/openxr_loader_nano.git GIT_TAG main)
+FetchContent_Declare(OpenXR GIT_REPOSITORY https://github.com/maluoi/openxr_loader_nano.git GIT_TAG release-1.1.65)
 FetchContent_MakeAvailable(OpenXR)
 target_link_libraries(my_app PRIVATE OpenXR::openxr_loader)
 ```
