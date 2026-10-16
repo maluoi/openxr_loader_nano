@@ -1,0 +1,8 @@
+build*/
+__pycache__/
+# Per-developer tool state: clangd's index, local CMake presets
+.cache/
+CMakeUserPresets.json
+# Local references and the investigation that started this, nothing builds from them
+external/
+research/

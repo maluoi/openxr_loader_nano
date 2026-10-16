@@ -1,0 +1,125 @@
+# Watches for new OpenXR SDK releases. When one appears, it applies the
+# mechanical updates (pinned version, regenerated exports), builds and tests
+# against upstream's loader_test, and opens a PR titled with the SDK version.
+# The PR body logs everything that changed, and ends with a prompt for an
+# agent to review upstream's loader changes and port what's needed.
+#
+# The repository needs "Allow GitHub Actions to create and approve pull
+# requests" enabled under Settings > Actions > General.
+
+name: Upstream OpenXR SDK sync
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SDK version to sync to, like 1.1.66 (blank for the latest release)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find the target release
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.version }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          version="${REQUESTED:-$(gh api repos/KhronosGroup/OpenXR-SDK/releases/latest --jq .tag_name)}"
+          version="${version#release-}"
+          branch="upstream/openxr-sdk-$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch"   >> "$GITHUB_OUTPUT"
+          # Scheduled runs leave an open sync PR alone, manual runs refresh it
+          if [ "$EVENT" = "schedule" ] && git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Branch $branch already exists, skipping"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.target.outputs.skip != 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Apply mechanical updates
+        id: sync
+        if: steps.target.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          python3 tools/sync_upstream.py --version "$VERSION" --work "$RUNNER_TEMP/sync" \
+            --report "$RUNNER_TEMP/report.md" --diffs "$RUNNER_TEMP/diffs" | tee "$RUNNER_TEMP/sync.log"
+          tail -n 2 "$RUNNER_TEMP/sync.log" >> "$GITHUB_OUTPUT"
+
+      - name: Install build tools
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ninja-build mingw-w64
+          python3 -m pip install --quiet markupsafe
+
+      - name: Build and test
+        if: steps.sync.outputs.changed == 'true'
+        continue-on-error: true
+        run: |
+          tools/ci_check.sh "$RUNNER_TEMP/sync/OpenXR-SDK-Source" build/ci > "$RUNNER_TEMP/tests.md" || true
+          cat "$RUNNER_TEMP/tests.md"
+          python3 - "$RUNNER_TEMP/report.md" "$RUNNER_TEMP/tests.md" <<'EOF'
+          import sys
+          report, tests = sys.argv[1], open(sys.argv[2]).read()
+          text = open(report).read().replace("## Test results\n\nNot run.\n", "## Test results\n\n" + tests, 1)
+          open(report, "w").write(text)
+          EOF
+
+      - name: Upload diffs and logs
+        if: steps.sync.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: openxr-sdk-${{ steps.target.outputs.version }}
+          path: |
+            ${{ runner.temp }}/report.md
+            ${{ runner.temp }}/diffs
+            build/ci/logs
+
+      - name: Open or update the pull request
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.target.outputs.version }}
+          BRANCH: ${{ steps.target.outputs.branch }}
+          BASE: ${{ github.event.repository.default_branch }}
+          PROBLEMS: ${{ steps.sync.outputs.problems }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          printf '\nFull diffs and logs are in the [workflow run artifacts](%s).\n' "$RUN_URL" >> "$RUNNER_TEMP/report.md"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add include src
+          # Empty when every update step failed, but the PR still needs to exist to report why
+          git commit --allow-empty -m "OpenXR SDK $VERSION" -m "Automated sync by tools/sync_upstream.py."
+          git push --force origin "$BRANCH"
+          # A partial sync opens as a draft, so it can't be merged without a look
+          draft=""
+          [ "$PROBLEMS" = "true" ] && draft="--draft"
+          if gh pr view "$BRANCH" --json number > /dev/null 2>&1; then
+            gh pr edit "$BRANCH" --title "OpenXR SDK $VERSION" --body-file "$RUNNER_TEMP/report.md"
+            [ -n "$draft" ] && gh pr ready "$BRANCH" --undo || true
+          else
+            gh pr create --base "$BASE" --head "$BRANCH" --title "OpenXR SDK $VERSION" --body-file "$RUNNER_TEMP/report.md" $draft
+          fi

@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=@CMAKE_INSTALL_PREFIX@
+libdir=${exec_prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/include
+
+Name: OPENXR
+Description: OpenXR Loader (@XRL_NAME@)
+Version: @XRL_API_VERSION@
+Libs: -L${libdir} -lopenxr_loader @XRL_EXTRA_LIBS@
+Cflags: -I${includedir}

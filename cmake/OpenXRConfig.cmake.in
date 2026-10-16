@@ -1,0 +1,15 @@
+# find_package(OpenXR) support for an installed loader, matching upstream's targets:
+# OpenXR::openxr_loader and OpenXR::headers.
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
+include("${CMAKE_CURRENT_LIST_DIR}/OpenXRTargets.cmake")
+
+set_and_check(OpenXR_INCLUDE_DIR "@PACKAGE_INCLUDE_INSTALL_DIR@")
+# Upstream doesn't set this, so it tells consumers which loader they found
+set(OpenXR_LOADER_IMPLEMENTATION "@XRL_NAME@")
+
+check_required_components(OpenXR)
