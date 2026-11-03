@@ -46,20 +46,6 @@ if(NOT BUILD_LOADER)
   return()
 endif()
 
-# The exported trampolines compile to the same few instructions either way,
-# so only cold setup code is affected. These flags only apply in this directory.
-option(XRL_OPTIMIZE_SIZE "Optimize the loader for size instead of speed in optimized builds" ON)
-if(XRL_OPTIMIZE_SIZE)
-  foreach(config RELEASE RELWITHDEBINFO MINSIZEREL)
-    string(REGEX REPLACE "[-/]O[0-9sz]" "" CMAKE_C_FLAGS_${config} "${CMAKE_C_FLAGS_${config}}")
-    if(MSVC)
-      string(APPEND CMAKE_C_FLAGS_${config} " /O1")
-    else()
-      string(APPEND CMAKE_C_FLAGS_${config} " -Os")
-    endif()
-  endforeach()
-endif()
-
 if(DYNAMIC_LOADER)
   add_library(openxr_loader SHARED)
 else()
